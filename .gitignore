@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate*
+*.tfvars
+!terraform.tfvars.example
+*.p8
+*.pem
+__pycache__/
+.venv/
+data/
+.idea/
+docs/platform-blueprint.md

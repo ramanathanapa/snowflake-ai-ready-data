@@ -1,0 +1,4 @@
+organization_name = "YOURORG"      # Snowsight > account menu > "Copy account identifier": ORG-ACCOUNT
+account_name      = "YOURACCOUNT"
+user              = "YOUR_USER"
+private_key_path  = "C:/Users/Ramanathan/.snowflake/rsa_key.p8"

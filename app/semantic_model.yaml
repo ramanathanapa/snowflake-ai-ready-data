@@ -1,0 +1,536 @@
+name: fund_analysis
+description: >
+  Public SEC data (N-PORT holdings, prospectus fees/returns) on 24 US mutual funds and ETFs, for portfolio managers.
+  Holdings are the fund's latest LOADED filing and are typically 2-8 months old; every fund has its own as_of_date.
+  All columns ending in _pct are already in PERCENT (7.5 means 7.5%), never fractions.
+  There is no price, benchmark or sector data. One fund can have several tickers (share classes); fund_ticker is the
+  recognisable one (e.g. VOO for Vanguard 500 Index Fund, whose other tickers are VFIAX, VFINX, VFFSX).
+
+custom_instructions: >
+  Always include the fund's as_of_date when the answer is about holdings, weights, mix, concentration or overlap.
+  Use latest_holding to answer "which funds hold X" and "top holdings"; sum pct_net_assets per security because a
+  security can appear on more than one line. Use fund_overlap for "how similar" questions; overlap_pct is 0-100.
+  Use holding_changes for "what changed / bought / sold": change_type NEW, SOLD, INCREASED, DECREASED, UNCHANGED
+  is relative to the fund's own median change, so unchanged positions are normal for index funds.
+  Fees: use fund_class_cost for class-level comparison and fund_summary.expense_ratio_pct for the fund's main class.
+  Duration and coupon questions use bond_profile, which only has bond funds (AGG, BND, TLT, LQD, HYG, TIP).
+  For return questions use annual_returns (calendar years) or monthly_returns (last 3 months per filing); ARKK, QQQM and SCHD have no annual returns.
+
+tables:
+  - name: fund_summary
+    description: One row per fund with its latest snapshot, size, concentration, cost and last full-year return.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: FUND_SUMMARY}
+    primary_key: {columns: [FUND_TICKER]}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+        description: Main ticker of the fund.
+        synonyms: [ticker, fund, symbol, etf]
+        sample_values: [VOO, IVV, VTI, AGG, BND, ARKK, TLT]
+      - name: fund_name
+        expr: FUND_NAME
+        data_type: TEXT
+        description: Official fund (series) name.
+        synonyms: [name, fund title]
+      - name: all_tickers
+        expr: ALL_TICKERS
+        data_type: TEXT
+        description: Comma-separated tickers of every share class of the fund.
+      - name: fund_family
+        expr: FUND_FAMILY
+        data_type: TEXT
+        description: The registrant / fund company, e.g. iShares Trust, Vanguard.
+        synonyms: [manager, sponsor, issuer, provider]
+      - name: fund_type
+        expr: FUND_TYPE
+        data_type: TEXT
+        description: Equity if 70%+ equities, Fixed income if 70%+ debt, otherwise Mixed / other.
+        sample_values: [Equity, Fixed income, Mixed / other]
+        synonyms: [asset class, category, strategy type]
+    time_dimensions:
+      - name: as_of_date
+        expr: AS_OF_DATE
+        data_type: DATE
+        description: Date of the portfolio snapshot (latest filing loaded). Differs by fund.
+        synonyms: [report date, portfolio date, snapshot date]
+      - name: filing_date
+        expr: FILING_DATE
+        data_type: DATE
+        description: Date the snapshot became public on SEC EDGAR.
+    facts:
+      - name: net_assets
+        expr: NET_ASSETS
+        data_type: NUMBER
+        description: Fund net assets in US dollars at as_of_date.
+        synonyms: [aum, assets under management, size, fund size]
+      - name: days_since_as_of
+        expr: DAYS_SINCE_AS_OF
+        data_type: NUMBER
+        description: How many days old the snapshot is today.
+        synonyms: [staleness, age of data]
+      - name: positions
+        expr: POSITIONS
+        data_type: NUMBER
+        description: Number of holding lines in the latest snapshot.
+        synonyms: [number of holdings, holdings count]
+      - name: equity_pct
+        expr: EQUITY_PCT
+        data_type: NUMBER
+        description: Percent of net assets in common and preferred equity.
+      - name: debt_pct
+        expr: DEBT_PCT
+        data_type: NUMBER
+        description: Percent of net assets in bonds, mortgage-backed and other debt.
+      - name: top10_concentration_pct
+        expr: TOP10_CONCENTRATION_PCT
+        data_type: NUMBER
+        description: Percent of net assets in the ten largest securities.
+        synonyms: [concentration, top 10 weight]
+      - name: expense_ratio_pct
+        expr: EXPENSE_RATIO_PCT
+        data_type: NUMBER
+        description: Annual expense ratio in percent for the fund's main share class.
+        synonyms: [fees, cost, expense ratio, ter]
+      - name: management_fee_pct
+        expr: MANAGEMENT_FEE_PCT
+        data_type: NUMBER
+        description: Management fee in percent.
+      - name: turnover_pct
+        expr: TURNOVER_PCT
+        data_type: NUMBER
+        description: Portfolio turnover rate in percent from the prospectus.
+        synonyms: [turnover, trading activity]
+      - name: last_full_year
+        expr: LAST_FULL_YEAR
+        data_type: NUMBER
+        description: Latest calendar year with a reported return.
+      - name: last_full_year_return_pct
+        expr: LAST_FULL_YEAR_RETURN_PCT
+        data_type: NUMBER
+        description: Total return in percent for last_full_year.
+
+  - name: fund_class_cost
+    description: Fees per share class (each ticker), from the latest prospectus.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: FUND_CLASS_COST}
+    dimensions:
+      - name: class_ticker
+        expr: CLASS_TICKER
+        data_type: TEXT
+        description: Ticker of the share class, e.g. VFIAX or VOO.
+        sample_values: [VOO, VFIAX, VFFSX, DODGX]
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+        description: Main ticker of the fund the class belongs to.
+      - name: fund_name
+        expr: FUND_NAME
+        data_type: TEXT
+      - name: fund_type
+        expr: FUND_TYPE
+        data_type: TEXT
+        sample_values: [Equity, Fixed income]
+    time_dimensions:
+      - name: fees_filed_date
+        expr: FEES_FILED_DATE
+        data_type: DATE
+        description: When the prospectus with these fees was filed.
+    facts:
+      - name: expense_ratio_pct
+        expr: EXPENSE_RATIO_PCT
+        data_type: NUMBER
+        description: Total annual operating expense ratio in percent.
+        synonyms: [fees, cost, expense ratio]
+      - name: management_fee_pct
+        expr: MANAGEMENT_FEE_PCT
+        data_type: NUMBER
+      - name: fee_12b1_pct
+        expr: FEE_12B1_PCT
+        data_type: NUMBER
+        description: Distribution and service (12b-1) fee in percent.
+      - name: other_expenses_pct
+        expr: OTHER_EXPENSES_PCT
+        data_type: NUMBER
+      - name: max_front_load_pct
+        expr: MAX_FRONT_LOAD_PCT
+        data_type: NUMBER
+        description: Maximum sales charge on purchases in percent.
+      - name: cost_of_10k_1y_usd
+        expr: COST_OF_10K_1Y_USD
+        data_type: NUMBER
+        description: Dollars of expenses on a $10,000 investment over 1 year.
+      - name: cost_of_10k_10y_usd
+        expr: COST_OF_10K_10Y_USD
+        data_type: NUMBER
+        description: Dollars of expenses on a $10,000 investment over 10 years.
+
+  - name: latest_holding
+    description: Every position in each fund's latest snapshot. Sum pct_net_assets per security.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: LATEST_HOLDING}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+      - name: fund_name
+        expr: FUND_NAME
+        data_type: TEXT
+      - name: issuer_name
+        expr: ISSUER_NAME
+        data_type: TEXT
+        description: Company or government that issued the security.
+        synonyms: [company, holding, security, stock, name]
+        sample_values: [NVIDIA Corp., Apple Inc., Microsoft Corp., United States Treasury]
+      - name: issuer_title
+        expr: ISSUER_TITLE
+        data_type: TEXT
+        description: Title of the security, e.g. Common Stock or U.S. Treasury Notes.
+      - name: cusip
+        expr: CUSIP
+        data_type: TEXT
+      - name: isin
+        expr: ISIN
+        data_type: TEXT
+      - name: asset_class
+        expr: ASSET_CLASS
+        data_type: TEXT
+        description: Readable asset class of the position.
+        sample_values: [Common equity, Debt (bonds, notes), Mortgage-backed security]
+        synonyms: [asset type]
+      - name: issuer_category
+        expr: ISSUER_CATEGORY
+        data_type: TEXT
+        sample_values: [Corporate, US Treasury, US government agency]
+      - name: country
+        expr: COUNTRY
+        data_type: TEXT
+        description: Two-letter country code of the investment, e.g. US, IN, TW, CN.
+        synonyms: [country code, geography]
+      - name: coupon_type
+        expr: COUPON_TYPE
+        data_type: TEXT
+    time_dimensions:
+      - name: as_of_date
+        expr: AS_OF_DATE
+        data_type: DATE
+      - name: maturity_date
+        expr: MATURITY_DATE
+        data_type: DATE
+    facts:
+      - name: value_usd
+        expr: VALUE_USD
+        data_type: NUMBER
+        description: Market value of the position in US dollars.
+        synonyms: [market value, position size]
+      - name: pct_net_assets
+        expr: PCT_NET_ASSETS
+        data_type: NUMBER
+        description: Position weight in percent of the fund's net assets.
+        synonyms: [weight, allocation, exposure]
+      - name: coupon_rate
+        expr: COUPON_RATE
+        data_type: NUMBER
+        description: Annual coupon in percent (bonds only).
+      - name: years_to_maturity
+        expr: YEARS_TO_MATURITY
+        data_type: NUMBER
+        description: Years from as_of_date to maturity (bonds only).
+
+  - name: fund_overlap
+    description: Pairwise overlap of two funds' latest portfolios. 100 means identical. Both directions are present.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: FUND_OVERLAP}
+    dimensions:
+      - name: fund_a
+        expr: FUND_A
+        data_type: TEXT
+        description: First fund ticker.
+        sample_values: [IVV, VOO, VTI]
+      - name: fund_b
+        expr: FUND_B
+        data_type: TEXT
+        description: Second fund ticker.
+    time_dimensions:
+      - name: fund_a_as_of
+        expr: FUND_A_AS_OF
+        data_type: DATE
+      - name: fund_b_as_of
+        expr: FUND_B_AS_OF
+        data_type: DATE
+    facts:
+      - name: overlap_pct
+        expr: OVERLAP_PCT
+        data_type: NUMBER
+        description: Sum over shared securities of the smaller weight, 0-100.
+        synonyms: [overlap, similarity, duplication]
+      - name: common_securities
+        expr: COMMON_SECURITIES
+        data_type: NUMBER
+        description: Number of securities held by both funds.
+
+  - name: holding_changes
+    description: Position changes between each fund's two most recent snapshots, adjusted for fund-wide share-count changes.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: HOLDING_CHANGES}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+      - name: issuer_name
+        expr: ISSUER_NAME
+        data_type: TEXT
+      - name: issuer_title
+        expr: ISSUER_TITLE
+        data_type: TEXT
+      - name: change_type
+        expr: CHANGE_TYPE
+        data_type: TEXT
+        description: NEW, SOLD, INCREASED, DECREASED or UNCHANGED versus the previous snapshot.
+        sample_values: [NEW, SOLD, INCREASED, DECREASED, UNCHANGED]
+        synonyms: [action, trade, move]
+    time_dimensions:
+      - name: current_as_of
+        expr: CURRENT_AS_OF
+        data_type: DATE
+      - name: previous_as_of
+        expr: PREVIOUS_AS_OF
+        data_type: DATE
+    facts:
+      - name: previous_pct
+        expr: PREVIOUS_PCT
+        data_type: NUMBER
+        description: Weight in percent at previous_as_of.
+      - name: current_pct
+        expr: CURRENT_PCT
+        data_type: NUMBER
+        description: Weight in percent at current_as_of.
+      - name: weight_change_pts
+        expr: WEIGHT_CHANGE_PTS
+        data_type: NUMBER
+        description: Change in weight in percentage points (includes price drift).
+        synonyms: [weight change]
+      - name: relative_balance_change_pct
+        expr: RELATIVE_BALANCE_CHANGE_PCT
+        data_type: NUMBER
+        description: Change in shares or principal in percent, relative to the fund's median change (trading signal).
+      - name: fund_flow_pct
+        expr: FUND_FLOW_PCT
+        data_type: NUMBER
+        description: Fund-wide median change in share counts, in percent (creations/redemptions).
+
+  - name: bond_profile
+    description: Coupon, maturity, sector split and rate sensitivity of the bond funds only.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: BOND_PROFILE}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+        sample_values: [AGG, BND, TLT, LQD, HYG, TIP]
+      - name: fund_name
+        expr: FUND_NAME
+        data_type: TEXT
+    time_dimensions:
+      - name: as_of_date
+        expr: AS_OF_DATE
+        data_type: DATE
+    facts:
+      - name: debt_pct
+        expr: DEBT_PCT
+        data_type: NUMBER
+      - name: wavg_coupon_pct
+        expr: WAVG_COUPON_PCT
+        data_type: NUMBER
+        description: Weighted-average coupon in percent.
+        synonyms: [average coupon, yield proxy]
+      - name: wavg_maturity_years
+        expr: WAVG_MATURITY_YEARS
+        data_type: NUMBER
+        description: Weighted-average years to maturity.
+        synonyms: [average maturity]
+      - name: treasury_pct
+        expr: TREASURY_PCT
+        data_type: NUMBER
+      - name: corporate_pct
+        expr: CORPORATE_PCT
+        data_type: NUMBER
+      - name: securitized_pct
+        expr: SECURITIZED_PCT
+        data_type: NUMBER
+        description: Percent in asset-backed and mortgage-backed securities.
+      - name: effective_duration_years
+        expr: EFFECTIVE_DURATION_YEARS
+        data_type: NUMBER
+        description: Interest-rate duration in years from reported DV01. Higher means more rate-sensitive.
+        synonyms: [duration, rate sensitivity, interest rate risk]
+      - name: dv01_total
+        expr: DV01_TOTAL
+        data_type: NUMBER
+        description: Dollar change in fund value per 1 basis point move, summed over tenors (sign differs by filer).
+
+  - name: fund_asset_mix
+    description: Percent of net assets by asset class per fund.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: FUND_ASSET_MIX}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+      - name: asset_class
+        expr: ASSET_CLASS
+        data_type: TEXT
+        sample_values: [Common equity, Debt (bonds, notes), Mortgage-backed security]
+    time_dimensions:
+      - name: as_of_date
+        expr: AS_OF_DATE
+        data_type: DATE
+    facts:
+      - name: positions
+        expr: POSITIONS
+        data_type: NUMBER
+      - name: pct_net_assets
+        expr: PCT_NET_ASSETS
+        data_type: NUMBER
+        description: Percent of net assets in this asset class.
+      - name: value_usd
+        expr: VALUE_USD
+        data_type: NUMBER
+
+  - name: fund_country_mix
+    description: Percent of net assets by country per fund.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: FUND_COUNTRY_MIX}
+    dimensions:
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+      - name: country
+        expr: COUNTRY
+        data_type: TEXT
+        description: Two-letter country code, e.g. US, CN, IN, TW, JP.
+        synonyms: [geography, country code, region]
+    time_dimensions:
+      - name: as_of_date
+        expr: AS_OF_DATE
+        data_type: DATE
+    facts:
+      - name: positions
+        expr: POSITIONS
+        data_type: NUMBER
+      - name: pct_net_assets
+        expr: PCT_NET_ASSETS
+        data_type: NUMBER
+        description: Percent of net assets in this country.
+      - name: value_usd
+        expr: VALUE_USD
+        data_type: NUMBER
+
+  - name: annual_returns
+    description: Calendar-year total return per share class from the prospectus (2015-2025). Not available for ARKK, QQQM, SCHD.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: ANNUAL_RETURNS}
+    dimensions:
+      - name: class_ticker
+        expr: CLASS_TICKER
+        data_type: TEXT
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+      - name: calendar_year
+        expr: CALENDAR_YEAR
+        data_type: NUMBER
+        sample_values: ['2022', '2023', '2024', '2025']
+    facts:
+      - name: total_return_pct
+        expr: TOTAL_RETURN_PCT
+        data_type: NUMBER
+        description: Total return for the calendar year in percent.
+        synonyms: [return, performance, yearly return]
+
+  - name: monthly_returns
+    description: Monthly total return per share class, three months for each filing.
+    base_table: {database: FUND_AI, schema: ANALYTICS, table: MONTHLY_RETURNS}
+    dimensions:
+      - name: class_ticker
+        expr: CLASS_TICKER
+        data_type: TEXT
+      - name: fund_ticker
+        expr: FUND_TICKER
+        data_type: TEXT
+    time_dimensions:
+      - name: month_end
+        expr: MONTH_END
+        data_type: DATE
+    facts:
+      - name: total_return_pct
+        expr: TOTAL_RETURN_PCT
+        data_type: NUMBER
+        description: Total return for the month in percent.
+
+relationships:
+  - name: holding_to_summary
+    left_table: latest_holding
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: changes_to_summary
+    left_table: holding_changes
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: bond_to_summary
+    left_table: bond_profile
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: asset_mix_to_summary
+    left_table: fund_asset_mix
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: country_mix_to_summary
+    left_table: fund_country_mix
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: annual_to_summary
+    left_table: annual_returns
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+  - name: cost_to_summary
+    left_table: fund_class_cost
+    right_table: fund_summary
+    relationship_columns: [{left_column: fund_ticker, right_column: fund_ticker}]
+    join_type: left_outer
+    relationship_type: many_to_one
+
+verified_queries:
+  - name: overlap_two_funds
+    question: How much do VOO and VTI overlap?
+    verified_at: 1760000000
+    verified_by: fund-team
+    sql: >
+      SELECT fund_a, fund_b, overlap_pct, common_securities, fund_a_as_of, fund_b_as_of
+      FROM __fund_overlap WHERE fund_a = 'VOO' AND fund_b = 'VTI'
+  - name: cheapest_funds
+    question: Which funds have the lowest expense ratio?
+    verified_at: 1760000000
+    verified_by: fund-team
+    sql: >
+      SELECT class_ticker, fund_name, expense_ratio_pct FROM __fund_class_cost
+      ORDER BY expense_ratio_pct ASC, class_ticker ASC LIMIT 10
+  - name: top_holdings
+    question: What are the top 10 holdings of IVV?
+    verified_at: 1760000000
+    verified_by: fund-team
+    sql: >
+      SELECT issuer_name, SUM(pct_net_assets) AS weight_pct, MAX(as_of_date) AS as_of_date
+      FROM __latest_holding WHERE fund_ticker = 'IVV'
+      GROUP BY issuer_name ORDER BY weight_pct DESC LIMIT 10
+  - name: most_rate_sensitive
+    question: Which bond fund is most sensitive to interest rates?
+    verified_at: 1760000000
+    verified_by: fund-team
+    sql: >
+      SELECT fund_ticker, effective_duration_years, as_of_date FROM __bond_profile
+      ORDER BY effective_duration_years DESC LIMIT 1
