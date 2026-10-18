@@ -305,7 +305,7 @@ The answers are correct for the data loaded, but the data is months old, the acc
 
 ## How to run and operate
 
-The app runs in Snowsight today; refreshing data and changing infrastructure are done from the engineer's laptop with the scripts in the `snowflake-ai-data` repo.
+The app runs in Snowsight today; refreshing data and changing infrastructure are done from the engineer's laptop with the scripts in the `ai-ready-data` repo.
 
 **Use the app (portfolio manager or engineer)**
 
