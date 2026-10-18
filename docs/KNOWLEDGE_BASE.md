@@ -215,14 +215,22 @@ A YAML-only change takes effect on the next question (the app reads the stage fi
 4. The header query reads `FUND_SUMMARY` for fund count, as-of range and average data age.
 5. The tabs render. Funds, Compare and What changed run fixed SQL against ANALYTICS views; results are cached for 10 minutes.
 
-**Ask a question (one chat turn)**
+**Ask a question (one chat turn), e.g. "How much do IVV and VOO overlap?"**
 
-1. The question is added to `st.session_state.chat` (conversation memory for this browser tab).
-2. The full conversation is sent to the Cortex Analyst REST API (`/api/v2/cortex/analyst/message`) through `_snowflake.send_snow_api_request`, with the YAML's stage path.
-3. Cortex Analyst reads the YAML, matches terms to views and columns, reuses a verified query if one fits, and returns its interpretation plus SQL (or "did you mean" suggestions). It does not run the SQL or see the data.
-4. The app runs the SQL on `FUND_WH` as returned (not wrapped) and keeps up to 500 rows.
-5. The reply shows the interpretation, the table, a bar chart for label-plus-number results, and the SQL in an expander. Errors appear as a short message.
-6. Close the tab when done: an open session keeps `FUND_WH` awake; it suspends 60 s after the last query.
+| # | Where | What happens |
+| --- | --- | --- |
+| 1 | Browser | The PM types a question or clicks a starter button; Streamlit reruns the script top to bottom. |
+| 2 | App (`streamlit_app.py:129`) | The question is appended to `st.session_state.chat`, the conversation memory for this browser tab. |
+| 3 | App (`:130-135`) | The whole conversation (questions plus Analyst's earlier replies) is rebuilt as messages, so follow-ups like "and for QQQM?" keep context. |
+| 4 | App (`:55-58`) | `call_analyst` POSTs to `/api/v2/cortex/analyst/message` via `_snowflake.send_snow_api_request`, with the history and `@FUND_AI.APP.SEMANTIC_STAGE/semantic_model.yaml`. No password or token handling inside Snowflake. |
+| 5 | Cortex Analyst | Reads the YAML, maps "overlap" to `FUND_OVERLAP` and the tickers to its columns, reuses a verified query if one fits, and an LLM writes the SQL. It does not run the SQL or see the data. |
+| 6 | Cortex Analyst → app | Returns up to three parts: **text** (its interpretation), **sql**, and **suggestions** ("did you mean") when the question is too vague. |
+| 7 | App (`:147`) | Runs the SQL as returned (not wrapped in a subquery) on `FUND_WH` and keeps at most 500 rows. |
+| 8 | Snowflake | The ANALYTICS view computes the answer: `FUND_OVERLAP` sums the smaller weight of each shared security, giving 96.8%. |
+| 9 | App (`:111-125`) | Shows the interpretation, the table, a bar chart for label-plus-number results, and the SQL in a "SQL used" expander. |
+| 10 | App (`:152`) | Any failure (Analyst error, bad SQL, timeout) is shown as a short message instead of a stack trace. |
+
+Close the tab when done: an open session keeps `FUND_WH` awake; it suspends 60 s after the last query. Chat SQL runs with the owner's rights, which is why a read-only, `SELECT`-only role is an open item before sharing the app.
 
 ```mermaid
 sequenceDiagram
