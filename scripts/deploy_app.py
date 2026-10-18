@@ -19,6 +19,8 @@ cur = snowflake.connector.connect(account=a.account, user=a.user, private_key=de
 
 def put(local: pathlib.Path, stage: str):
     cur.execute(f"PUT 'file://{local.as_posix()}' {stage} AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+    # PUT does not update an internal stage's directory table; Snowsight's file pickers read it
+    cur.execute(f"ALTER STAGE {stage.lstrip('@').split('/')[0]} REFRESH")
     print("uploaded", local.name, "->", stage)
 
 put(ROOT / "app" / "semantic_model.yaml", "@SEMANTIC_STAGE")
