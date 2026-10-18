@@ -112,3 +112,6 @@ Install with `claude plugin marketplace add ramanathanapa/snowflake-skills`, the
 ## Platform readiness
 A blueprint of platform decisions (`docs/platform-blueprint.md`) and the results of the 60 read-only checks from the `snowflake-platform-engineering` skill are kept **locally, out of git**, because they describe this account's security posture.
 Re-run: execute the skill's `checks/*.sql` scripts and `checks/99-scorecard.sql` in one session.
+
+## License
+[MIT](LICENSE)
