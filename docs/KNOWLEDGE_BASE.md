@@ -193,6 +193,71 @@ Answers from the chat test battery (10 of 10 correct against live data):
 
 On the trial account the chat returns tables and SQL, not written summaries, because `CORTEX.COMPLETE` is blocked; Cortex Analyst itself works.
 
+## Streamlit app: how it runs
+
+The app is two files on a stage plus one `STREAMLIT` object; Snowflake runs the Python, and every answer is plain SQL on `FUND_WH` against ANALYTICS views.
+
+**Deploy (engineer, after any change to `app/`)**
+
+1. `python scripts/deploy_app.py --account <ORG-ACCOUNT> --user <USER>` connects as `FUND_ENGINEER` with the key pair.
+2. `PUT` uploads `app/semantic_model.yaml` to `@FUND_AI.APP.SEMANTIC_STAGE`, and `app/streamlit_app.py` + `app/environment.yml` to `@FUND_AI.APP.STREAMLIT_STAGE/fund_ai`.
+3. `ALTER STAGE ... REFRESH` updates each stage's directory table, so Snowsight's file pickers (including the Cortex Analyst editor) see the new files.
+4. `CREATE OR REPLACE STREAMLIT FUND_AI.APP.FUND_ANALYST` points the app at the stage folder, with `MAIN_FILE = 'streamlit_app.py'` and `QUERY_WAREHOUSE = FUND_WH`.
+5. `FUND_PM` gets `USAGE` on the app through the Terraform future grant; nothing else to run.
+
+A YAML-only change takes effect on the next question (the app reads the stage file each call); a Python change takes effect when the app is next opened.
+
+**Open (PM or engineer)**
+
+1. Snowsight → **Projects → Streamlit → Fund Analyst**, with role `FUND_PM` or `FUND_ENGINEER`.
+2. Snowflake starts the app with the packages in `environment.yml` (Streamlit 1.35, Altair); the first load takes 20-40 s.
+3. `get_session()` picks up the active Snowpark session. The app runs with the **owner's rights** (`FUND_ENGINEER`), not the viewer's role.
+4. The header query reads `FUND_SUMMARY` for fund count, as-of range and average data age.
+5. The tabs render. Funds, Compare and What changed run fixed SQL against ANALYTICS views; results are cached for 10 minutes.
+
+**Ask a question (one chat turn)**
+
+1. The question is added to `st.session_state.chat` (conversation memory for this browser tab).
+2. The full conversation is sent to the Cortex Analyst REST API (`/api/v2/cortex/analyst/message`) through `_snowflake.send_snow_api_request`, with the YAML's stage path.
+3. Cortex Analyst reads the YAML, matches terms to views and columns, reuses a verified query if one fits, and returns its interpretation plus SQL (or "did you mean" suggestions). It does not run the SQL or see the data.
+4. The app runs the SQL on `FUND_WH` as returned (not wrapped) and keeps up to 500 rows.
+5. The reply shows the interpretation, the table, a bar chart for label-plus-number results, and the SQL in an expander. Errors appear as a short message.
+6. Close the tab when done: an open session keeps `FUND_WH` awake; it suspends 60 s after the last query.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor PM as Portfolio manager
+    participant UI as Streamlit app<br/>FUND_ANALYST
+    participant CA as Cortex Analyst<br/>REST API
+    participant ST as SEMANTIC_STAGE<br/>semantic_model.yaml
+    participant WH as FUND_WH
+    participant AN as ANALYTICS views
+
+    Note over UI,AN: App opens (owner's rights, FUND_ENGINEER)
+    UI->>WH: header query
+    WH->>AN: FUND_SUMMARY
+    AN-->>UI: fund count, as-of range, data age
+
+    PM->>UI: "How much do IVV and VOO overlap?"
+    UI->>UI: append to session_state.chat
+    UI->>CA: conversation + semantic_model_file
+    CA->>ST: read semantic model
+    CA-->>UI: interpretation + SQL (or suggestions)
+    UI->>WH: run SQL as returned
+    WH->>AN: FUND_OVERLAP
+    AN-->>UI: rows (max 500)
+    UI-->>PM: interpretation, table, bar chart, SQL expander
+
+    Note over PM,UI: Funds / Compare / What changed skip Cortex Analyst:<br/>fixed SQL to ANALYTICS views, cached 10 min
+```
+
+| Cost item | When it is billed |
+| --- | --- |
+| Cortex Analyst | Each chat question (about 0.067 credits measured) |
+| `FUND_WH` (XSMALL) | While queries run and the app is open; auto-suspends 60 s after the last query |
+| Funds / Compare / What changed | Warehouse time only; repeated views within 10 minutes come from the cache |
+
 ## Limitations, issues fixed and open items
 
 The answers are correct for the data loaded, but the data is months old, the account is a trial, and the app is not yet safe to share with other users.
