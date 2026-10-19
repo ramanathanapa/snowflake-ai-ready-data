@@ -9,3 +9,4 @@ __pycache__/
 data/
 .idea/
 docs/platform-blueprint.md
+.streamlit/secrets.toml

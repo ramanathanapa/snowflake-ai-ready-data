@@ -102,6 +102,22 @@ Known caveats: no sector (N-PORT has no GICS); DV01 sign differs by filer (Vangu
 - Test the semantic model: `python tests/ask_analyst.py --account <ORG-ACCOUNT> --user <USER>` (10 PM questions with expected answers).
 - Trial-account limits: Cortex Analyst works, but `CORTEX.COMPLETE` (LLM text) is blocked, so the chat returns SQL + tables, not narrative summaries; Cortex Search is untested. The app pins `streamlit=1.35.0` (Snowflake runtime), so it uses `use_container_width`, which newer local Streamlit versions warn about.
 
+## Public demo (Streamlit Community Cloud)
+Streamlit in Snowflake needs a Snowflake login per viewer, so the public demo runs the same `app/streamlit_app.py` on Streamlit Community Cloud.
+- `infra/terraform/demo.tf`: service user `SVC_FUND_DEMO` (key-pair only), read-only role `FUND_PUBLIC` (SELECT on ANALYTICS views, READ on the semantic stage), warehouse `FUND_DEMO_WH` capped by `FUND_DEMO_RM` (5 credits/month, 60 s statement timeout). Delete the file and apply to take the demo down.
+- The app only runs `SELECT`/`WITH` SQL from Cortex Analyst and limits questions per visit (`max_questions`); the resource monitor is the real cost cap.
+- Deploy: share.streamlit.io > New app > this repo, branch `main`, file `app/streamlit_app.py`, Python 3.11. Paste into the app's Secrets (never commit them):
+  ```toml
+  [snowflake]
+  account = "<ORG-ACCOUNT>"
+  user = "SVC_FUND_DEMO"
+  role = "FUND_PUBLIC"
+  warehouse = "FUND_DEMO_WH"
+  max_questions = 10
+  private_key = """<contents of svc_fund_demo.p8>"""
+  ```
+- `app/requirements.txt` is for Community Cloud; `app/snowflake/environment.yml` is for Streamlit in Snowflake (kept apart so Community Cloud does not pick up the conda file).
+
 ## Claude skills used by this project
 The Snowflake skills developed alongside this project are published separately at https://github.com/ramanathanapa/snowflake-skills:
 - `snowflake-data-engineering`: building and reviewing pipelines, models and apps (scoped reviews with a fixed report format).

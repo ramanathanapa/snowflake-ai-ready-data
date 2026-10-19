@@ -27,7 +27,7 @@ put(ROOT / "app" / "semantic_model.yaml", "@SEMANTIC_STAGE")
 
 app = ROOT / "app" / "streamlit_app.py"
 if app.exists():
-    for f in (app, ROOT / "app" / "environment.yml"):
+    for f in (app, ROOT / "app" / "snowflake" / "environment.yml"):
         put(f, "@STREAMLIT_STAGE/fund_ai")
     cur.execute("""CREATE OR REPLACE STREAMLIT FUND_AI.APP.FUND_ANALYST
         ROOT_LOCATION = '@FUND_AI.APP.STREAMLIT_STAGE/fund_ai'

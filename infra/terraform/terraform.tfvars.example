@@ -2,3 +2,4 @@ organization_name = "YOURORG"      # Snowsight > account menu > "Copy account id
 account_name      = "YOURACCOUNT"
 user              = "YOUR_USER"
 private_key_path  = "C:/Users/Ramanathan/.snowflake/rsa_key.p8"
+demo_public_key   = "MIIBIjANBg..." # body of svc_fund_demo.pub, without the BEGIN/END lines

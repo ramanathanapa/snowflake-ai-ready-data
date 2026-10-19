@@ -1,0 +1,6 @@
+# Streamlit Community Cloud (public demo). Streamlit pinned to the Snowflake runtime version the app targets.
+streamlit==1.35.0
+snowflake-snowpark-python
+altair
+pandas
+cryptography

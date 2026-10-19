@@ -22,7 +22,19 @@ SUGGESTIONS = [
 st.set_page_config(page_title="Fund Analyst", page_icon=None, layout="wide")
 
 
-# ---------- connection (works in Snowflake and locally) ----------
+# ---------- connection (Snowflake, public demo via st.secrets, or local) ----------
+def demo_secrets() -> dict:
+    """[snowflake] section of Streamlit secrets; present only on the public demo deployment."""
+    try:
+        return dict(st.secrets["snowflake"])
+    except Exception:  # no secrets file locally / in Snowflake
+        return {}
+
+
+DEMO = demo_secrets()
+MAX_QUESTIONS = int(DEMO.get("max_questions", 0))  # 0 = unlimited (Snowflake and local runs)
+
+
 @st.cache_resource
 def get_session():
     try:
@@ -31,12 +43,11 @@ def get_session():
     except Exception:
         from cryptography.hazmat.primitives import serialization as s
         from snowflake.snowpark import Session
-        key = s.load_pem_private_key((pathlib.Path.home() / ".snowflake" / "rsa_key.p8").read_bytes(), password=None)
-        der = key.private_bytes(s.Encoding.DER, s.PrivateFormat.PKCS8, s.NoEncryption())
-        return Session.builder.configs({
-            "account": os.environ["FUND_ACCOUNT"], "user": os.environ["FUND_USER"], "private_key": der,
-            "role": "FUND_ENGINEER", "warehouse": "FUND_WH", "database": "FUND_AI", "schema": "ANALYTICS",
-        }).create(), False
+        pem = DEMO["private_key"].encode() if DEMO else (pathlib.Path.home() / ".snowflake" / "rsa_key.p8").read_bytes()
+        der = s.load_pem_private_key(pem, password=None).private_bytes(s.Encoding.DER, s.PrivateFormat.PKCS8, s.NoEncryption())
+        cfg = {"account": DEMO["account"], "user": DEMO["user"], "role": DEMO["role"], "warehouse": DEMO["warehouse"]} if DEMO else {
+            "account": os.environ["FUND_ACCOUNT"], "user": os.environ["FUND_USER"], "role": "FUND_ENGINEER", "warehouse": "FUND_WH"}
+        return Session.builder.configs({**cfg, "private_key": der, "database": "FUND_AI", "schema": "ANALYTICS"}).create(), False
 
 
 SESSION, IN_SNOWFLAKE = get_session()
@@ -124,7 +135,12 @@ with tab_ask:
                 with st.expander("SQL used"):
                     st.code(m["sql"], language="sql")
 
-    question = st.chat_input("Ask about the 24 funds: holdings, fees, overlap, duration, what changed...") or pending
+    asked = sum(m["role"] == "user" for m in st.session_state.chat)
+    if MAX_QUESTIONS and asked >= MAX_QUESTIONS:
+        st.info(f"This public demo allows {MAX_QUESTIONS} questions per visit.")
+        question = None
+    else:
+        question = st.chat_input("Ask about the 24 funds: holdings, fees, overlap, duration, what changed...") or pending
     if question:
         st.session_state.chat.append({"role": "user", "text": question})
         history = []
@@ -143,6 +159,9 @@ with tab_ask:
             sql = next((c["statement"] for c in msg if c["type"] == "sql"), None)
             if sql:
                 reply["sql"] = sql
+                # read-only guard on generated SQL (the demo role is read-only too)
+                if sql.lstrip().split(None, 1)[0].upper() not in ("SELECT", "WITH"):
+                    raise ValueError("Only read-only SELECT queries are allowed.")
                 # run the SQL as generated (it ends with a comment, so it must not be wrapped in a subquery)
                 reply["df"] = SESSION.sql(sql).to_pandas().head(500)
             else:
